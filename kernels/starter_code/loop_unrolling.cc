@@ -15,9 +15,9 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
     float *scale = params->scales, *offset = params->offset;
 
     quantize_fp32_to_int8(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, block_size);
-
+    int8_t w[64]; //提前申请一块内存，存后面的int4解包信息
     int m = C->row, n = C->column, k = A->column;
-    // A: m x k; B: n x k; C: m x n
+    // A: m x k; B: k x n; C: m x n
     for (int row = 0; row < m; row++) {
         for (int col = 0; col < n; col += 4) {
             float acc0 = 0;
@@ -40,32 +40,6 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 float s_w1 = params->scales[((col + 1) * k + ch) / block_size];
                 float s_w2 = params->scales[((col + 2) * k + ch) / block_size];
                 float s_w3 = params->scales[((col + 3) * k + ch) / block_size];
-#ifdef QM_ARM
-                // order of weights with QM_ARM:
-                // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w30,w31)
-                // QM_ARM order: (w0,w16),(w1,w17),(w2,w18),(w3,w19),(w4, w20),... (w15,w31)
-                //               |--|
-                //               4 bits
-                //               |------|
-                //               8 bits (byte)
-                //            low|----------------------------------------------------------|high
-                //               0                         128 bit                         127
-                // process 16 bytes of weigths (128 bit) = 1 block for each of unrolled `col`
-                // intermediate variable to store sum of integer multiplication and accumulation
-                int intermediate_sum0 = 0, intermediate_sum1 = 0, intermediate_sum2 = 0, intermediate_sum3 = 0;
-                for (int qj = 0; qj < 16; qj++) {
-                    // TODO: decode a packed byte into two int8 in the range of (-8, 7)
-
-                    // TODO: int8 multiply and accumulate operation
-                }
-                // dequantize the sum into floating point
-                acc0 += (float)intermediate_sum0 * s_a * s_w0;
-                acc1 += (float)intermediate_sum1 * s_a * s_w1;
-                acc2 += (float)intermediate_sum2 * s_a * s_w2;
-                acc3 += (float)intermediate_sum3 * s_a * s_w3;
-                ch += block_size;
-#endif
-#ifdef QM_x86
                 // scales of the second block
                 float s_w0_2nd = params->scales[(col * k + ch) / block_size + 1];
                 float s_w1_2nd = params->scales[((col + 1) * k + ch) / block_size + 1];
@@ -74,7 +48,7 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 float s_a_2nd = params->A_scales[(row * k + ch) / block_size + 1];
                 // order of weights with QM_x86:
                 // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w62,w63)
-                // QM_ARM order: (w0,w32),(w1,w33),(w2,w34),(w3,w35),(w4, w36),... (w31,w63)
+                // QM_x86 order: (w0,w32),(w1,w33),(w2,w34),(w3,w35),(w4, w36),... (w31,w63)
                 //               |--|
                 //               4 bits
                 //               |------|
@@ -86,10 +60,30 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 int intermediate_sum0 = 0, intermediate_sum1 = 0, intermediate_sum2 = 0, intermediate_sum3 = 0;
                 int intermediate_sum0_2nd = 0, intermediate_sum1_2nd = 0, intermediate_sum2_2nd = 0,
                     intermediate_sum3_2nd = 0;
-                for (int qj = 0; qj < 32; qj++) {
+                for (int qj = 0; qj < 32; qj++) { //循环32次，一次一个int8，把256b循环完
                     // TODO: decode a packed byte into two int8 in the range of (-8, 7)
-
+                    // 实际上这里是两个int4存储在一个uint8，那只要根据uint8的存储格式把int4拆出来就行
+                    w[qj]= (w0_int4[qj] & 0x0F) - 8.0; //低四位，为什么一定要加.0，尚不明确
+                    w[qj+32]=  (w0_int4[qj] >> 4) - 8.0; //高四位
+                    w[qj+1]= (w1_int4[qj] & 0x0F) - 8.0; //低四位
+                    w[qj+33]=  (w1_int4[qj] >> 4) - 8.0; //高四位
+                    w[qj+2]= (w2_int4[qj] & 0x0F) - 8.0; //低四位
+                    w[qj+34]=  (w2_int4[qj] >> 4) - 8.0; //高四位
+                    w[qj+3]= (w3_int4[qj] & 0x0F) - 8.0; //低四位
+                    w[qj+35]=  (w3_int4[qj] >> 4) - 8.0; //高四位
                     // TODO: int8 multiply and accumulate operation
+                    // 这个是水的
+                    intermediate_sum0+=a_int8[qj]*w[qj];
+                    intermediate_sum0_2nd+=a_int8[qj+32]*w[qj+32];
+
+                    intermediate_sum1+=a_int8[qj]*w[qj+1];
+                    intermediate_sum1_2nd+=a_int8[qj+32]*w[qj+33];
+
+                    intermediate_sum2+=a_int8[qj]*w[qj+2];
+                    intermediate_sum2_2nd+=a_int8[qj+32]*w[qj+34];
+
+                    intermediate_sum3+=a_int8[qj]*w[qj+3];
+                    intermediate_sum3_2nd+=a_int8[qj+32]*w[qj+35];
                 }
                 // dequantize the sum into floating point
                 acc0 += (float)intermediate_sum0 * s_a * s_w0;
@@ -102,7 +96,6 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 acc3 += (float)intermediate_sum3_2nd * s_a_2nd * s_w3_2nd;
                 // process two blocks
                 ch += block_size * 2;
-#endif
             }
             C->data_ptr[row * n + col] = acc0;
             C->data_ptr[row * n + col + 1] = acc1;
