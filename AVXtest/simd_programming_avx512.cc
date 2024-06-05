@@ -12,7 +12,7 @@
 #include <immintrin.h>
 
 namespace matmul {
-void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {
+void MatmulOperator::mat_mul_simd_programming(struct matmul_params *params) {  //还没开始写
     const struct matrix *A = &params->A, *B = &params->B, *C = &params->C;
     const int block_size = params->block_size;  // block_size = 32
 
