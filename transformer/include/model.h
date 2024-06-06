@@ -16,14 +16,14 @@ struct model_config {
     model_config() : model_config(1, 12, 12, 512, 768, 3072, 50272, 1) {}
     model_config(int batch, int num_heads, int num_layers, int max_sqlen, int embed_dim, int hidden_dim, int vocsize,
                  int padding_idx)
-        : batch(batch),
-          num_heads(num_heads),
-          num_layers(num_layers),
-          max_sqlen(max_sqlen),
-          embed_dim(embed_dim),
-          hidden_dim(hidden_dim),
-          vocsize(vocsize),
-          padding_idx(padding_idx) {}
+        : batch(batch),//1
+          num_heads(num_heads),//32
+          num_layers(num_layers),//32
+          max_sqlen(max_sqlen),//2048
+          embed_dim(embed_dim),//4096
+          hidden_dim(hidden_dim),//11008
+          vocsize(vocsize),//32000
+          padding_idx(padding_idx) {}//1
 };
 
 enum { OPT_125M, OPT_1_3B, OPT_6_7B, LLaMA_7B };
