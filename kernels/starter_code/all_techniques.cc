@@ -26,7 +26,7 @@ static void *all_techniques_worker_func(void *args) {
         for (int col = mat_args->start_j; col < mat_args->end_j; col++) {
             // order of weights with QM_x86:
             // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w62,w63)
-            // QM_ARM order: (w0,w32),(w1,w33),(w2,w34),(w3,w35),(w4, w36),... (w31,w63)
+            // QM_x86 order: (w0,w32),(w1,w33),(w2,w34),(w3,w35),(w4, w36),... (w31,w63)
             //               |--|
             //               4 bits
             //               |------|
@@ -150,7 +150,7 @@ void MatmulOperator::mat_mul_all_techniques(struct matmul_params *params) {
 
     quantize_fp32_to_int8(A->data_ptr, A->int8_data_ptr, params->A_scales, A->row * A->column, block_size);
 
-    const int num_thread = 4;
+    const int num_thread = 8;
     pthread_t thread_pool[num_thread];
     struct w4a8_thread_args threads_args[num_thread];
     assert(params->block_size == 32);  // support block size 32 for now

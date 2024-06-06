@@ -83,7 +83,7 @@ void BMM_F32T::forward_weight_untransposed(const Matrix3D<float> &a, const Matri
     for (int i = 0; i < m * n * a.m_dim_x; i++) {
         params.C.data_ptr[i] = 0;
     }
-
+/*
     for (int bz = 0; bz < a.m_dim_x; bz++) {
         float *data_A = params.A.data_ptr + bz * m * k, *data_B = params.B.data_ptr + bz * k * n,
               *data_C = params.C.data_ptr + bz * m * n;
@@ -96,6 +96,43 @@ void BMM_F32T::forward_weight_untransposed(const Matrix3D<float> &a, const Matri
                 }
             }
     }
-
+*/
+    const int unroll_factor = 4;
+    for (int bz = 0; bz < a.m_dim_x; bz++) {
+        float *data_A = params.A.data_ptr + bz * m * k, *data_B = params.B.data_ptr + bz * k * n,
+              *data_C = params.C.data_ptr + bz * m * n;
+        for (int i = 0; i < m; i++) {
+            for (int kk = 0; kk < k - k % unroll_factor; kk += unroll_factor) {
+                for (int j = 0; j < n; j++) {
+                    float sum = 0;
+                    for (int u = 0; u < unroll_factor; ++u) {
+                        float A_ik = data_A[i * k + kk + u];
+                        float B_kj = data_B[(kk + u) * n + j];
+                        sum += A_ik * B_kj;
+                    }
+                    data_C[i * n + j] += sum;
+                }
+            }
+        }
+    }
+    for (int bz = 0; bz < a.m_dim_x; bz++) {
+        float *data_A = params.A.data_ptr + bz * m * k, *data_B = params.B.data_ptr + bz * k * n,
+              *data_C = params.C.data_ptr + bz * m * n;
+        for (int i = 0; i < m; i++) {
+            for (int kk = k - k % unroll_factor; kk < k; ++kk) {
+                for (int j = 0; j < n; j++) {
+                    float A_ik = data_A[i * k + kk];
+                    float B_kj = data_B[kk * n + j];
+                    data_C[i * n + j] += A_ik * B_kj;
+                }
+            }
+        }
+    }
+    for (int bz = 0; bz < a.m_dim_x; bz++) {
+        float *data_C = params.C.data_ptr + bz * m * n;
+        for (int i = 0; i < m * n; i++) {
+            data_C[i] *= alpha;
+        }
+    }
     PROFILE_END(profile_name);
 }

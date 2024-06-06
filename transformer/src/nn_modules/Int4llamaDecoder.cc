@@ -2,8 +2,9 @@
 
 #include <cstring>
 #include <iostream>
-
+#include <unistd.h>
 #include "utils.h"
+// #include <time.h>
 
 Matrix3D<float> Int4llamaDecoder::prepare_decoder_attention_mask(int length, int past_length) {
     PROFILE_START("Int4llamaDecoder::prepare_decoder_attention_mask");
@@ -25,10 +26,10 @@ Matrix3D<float> Int4llamaDecoder::prepare_decoder_attention_mask(int length, int
 }
 
 Int4llamaDecoder::Int4llamaDecoder(std::string param_path, const struct model_config config) {
-    allocate_aligned_memory(attention_mask_buf, config.max_sqlen * config.max_sqlen * sizeof(float));
-    allocate_aligned_memory(pos_embeds_buf, config.max_sqlen * config.embed_dim * sizeof(float));
-    allocate_aligned_memory(last_hidden_states_buf, config.max_sqlen * config.embed_dim * sizeof(float));
-    allocate_aligned_memory(hidden_states_buf, config.max_sqlen * config.embed_dim * sizeof(float));
+    allocate_aligned_memory(attention_mask_buf, config.max_sqlen * config.max_sqlen * sizeof(float)); // 2048*2048*4
+    allocate_aligned_memory(pos_embeds_buf, config.max_sqlen * config.embed_dim * sizeof(float)); // 2048*4096*4
+    allocate_aligned_memory(last_hidden_states_buf, config.max_sqlen * config.embed_dim * sizeof(float)); // 2048*4096*4
+    allocate_aligned_memory(hidden_states_buf, config.max_sqlen * config.embed_dim * sizeof(float)); // 2048*4096*4
 
     this->voc_size = config.vocsize;
     this->embed_dim = config.embed_dim;
@@ -49,13 +50,22 @@ Int4llamaDecoder::Int4llamaDecoder(std::string param_path, const struct model_co
     this->norm = LlamaRMSNorm(norm_weight);
 
     // Load all the decoder layers
+    // calculate the time consumption for loading each layer
     for (int layer_idx = 0; layer_idx < config.num_layers; layer_idx++) {
         DEBUG_INS(std::cout << "Start loading layer:" << layer_idx << "..." << std::endl;)
 
+        // set timer
+        // struct timespec start, end;
+        // clock_gettime(CLOCK_MONOTONIC, &start);
         std::string path = param_path + "/layer" + std::to_string(layer_idx);
         Int4llamaDecoderLayer layer = Int4llamaDecoderLayer(path, config, layer_idx);
 
         this->layers.push_back(layer);
+        // end timer
+//         clock_gettime(CLOCK_MONOTONIC, &end);
+//         double time = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+// //        DEBUG_INS(std::cout << "Layer " << layer_idx << " loaded in " << time << "s" << std::endl;)
+//         fprintf(stderr, "Layer %d loaded in %fs\n", layer_idx, time);
     }
 };
 
@@ -78,9 +88,16 @@ struct Int4llamaDecoder_output Int4llamaDecoder::forward(const struct Int4llamaD
         this->prepare_decoder_attention_mask(sqlen + past_key_values_length, past_key_values_length);
 
     // Go through each layer
+
+    // print the time consumption for forwarding process at each layer
     Matrix3D<float> hidden_states = inputs_embeds;
     std::vector<Matrix3D<float>> past_keys, past_values;
     for (int i = 0; i < this->layers.size(); i++) {
+
+        // set timer
+        // struct timespec start, end;
+        // clock_gettime(CLOCK_MONOTONIC, &start);
+
         if (!input.has_past_keys_values) {
             struct Int4llamaDecoderLayer_input l_i = {hidden_states, causal_attention_mask};
             struct Int4llamaDecoderLayer_output l_o = this->layers[i].forward(l_i);
@@ -95,6 +112,11 @@ struct Int4llamaDecoder_output Int4llamaDecoder::forward(const struct Int4llamaD
             past_keys.push_back(l_o.past_key_value.first);
             past_values.push_back(l_o.past_key_value.second);
         }
+
+        // end timer
+        // clock_gettime(CLOCK_MONOTONIC, &end);
+        // double time = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+        // fprintf(stderr, "Layer %d forward in %fs\n", i, time);
     }
 
     // Layernorm
