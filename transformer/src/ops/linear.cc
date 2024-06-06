@@ -1,31 +1,70 @@
+#include <immintrin.h>  // For AVX intrinsics
+
 #include <cassert>
 
 #include "operators.h"
-/*
-template <typename T>
-void linear(Matrix3D<T> &a, Matrix3D<T> &b, Matrix3D<T> &c) {
-    // a: m x k   b: n x k   c: m x n
-    assert(a.m_dim_x == b.m_dim_x);  // batch dim
-    assert(a.m_dim_z == b.m_dim_z);  // k
-    assert(a.m_dim_y == c.m_dim_y);  // m
-    assert(b.m_dim_y == c.m_dim_z);  // n
 
-    int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
+// template <typename T>
+// void linear(Matrix3D<T> &a, Matrix3D<T> &b, Matrix3D<T> &c) {
+//     // a: m x k   b: n x k   c: m x n
+//     assert(a.m_dim_x == b.m_dim_x);  // batch dim
+//     assert(a.m_dim_z == b.m_dim_z);  // k
+//     assert(a.m_dim_y == c.m_dim_y);  // m
+//     assert(b.m_dim_y == c.m_dim_z);  // n
 
-    for (int b_ = 0; b_ < b_size; b_++) {
-        for (int i = 0; i < m; i++) {
-            for (int j = 0; j < n; j++) {
-                T acc = 0;
-                for (int kk = 0; kk < k; k++) {
-                    acc += a(b_, i, kk) * b(b_, j, kk);
-                }
+//     int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;
 
-                c(b_, i, j) = acc;
-            }
-        }
-    }
-}
-*/
+//     for (int b_ = 0; b_ < b_size; b_++) {
+//         for (int i = 0; i < m; i++) {
+//             for (int j = 0; j < n; j++) {
+//                 T acc = 0;
+//                 for (int kk = 0; kk < k; k++) {
+//                     acc += a(b_, i, kk) * b(b_, j, kk);
+//                 }
+
+//                 c(b_, i, j) = acc;
+//             }
+//         }
+//     }
+// }
+
+
+
+// template <typename T>
+// void linear(Matrix3D<T> &a, const Matrix3D<T> &b, Matrix3D<T> &c) {
+//     // a: m x k   b: n x k   c: m x n
+//     assert(a.m_dim_x == b.m_dim_x);  // batch dim
+//     assert(a.m_dim_z == b.m_dim_z);  // k
+//     assert(a.m_dim_y == c.m_dim_y);  // m
+//     assert(b.m_dim_y == c.m_dim_z);  // n
+//     int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = a.m_dim_x;
+//     for (int b_ = 0; b_ < b_size; ++b_) {
+//         for (int i = 0; i < m; ++i) {
+//             for (int j = 0; j < n; ++j) {
+//                 T acc[4] = {0};
+//                 for (int kk = 0; kk < k - k % 4; kk += 4) {
+//                     acc[0] += a(b_, i, kk) * b(b_, j, kk);
+//                     acc[1] += a(b_, i, kk + 1) * b(b_, j, kk + 1);
+//                     acc[2] += a(b_, i, kk + 2) * b(b_, j, kk + 2);
+//                     acc[3] += a(b_, i, kk + 3) * b(b_, j, kk + 3);
+//                 }
+//                 c(b_, i, j) = acc[0] + acc[1] + acc[2] + acc[3];
+//             }
+//         }
+//     }
+//     for (int b_ = 0; b_ < b_size; ++b_) {
+//         for (int i = 0; i < m; ++i) {
+//             for (int j = 0; j < n; ++j) {
+//                 T acc = 0;
+//                 for (int kk = k - k % 4; kk < k; ++kk) {
+//                     acc += a(b_, i, kk) * b(b_, j, kk);
+//                 }
+//                 c(b_, i, j) += acc;
+//             }
+//         }
+//     }
+// }
+
 template <typename T>
 void linear(Matrix3D<T> &a, const Matrix3D<T> &b, Matrix3D<T> &c) {
     // a: m x k   b: n x k   c: m x n
@@ -37,14 +76,17 @@ void linear(Matrix3D<T> &a, const Matrix3D<T> &b, Matrix3D<T> &c) {
     for (int b_ = 0; b_ < b_size; ++b_) {
         for (int i = 0; i < m; ++i) {
             for (int j = 0; j < n; ++j) {
-                T acc[4] = {0};
-                for (int kk = 0; kk < k - k % 4; kk += 4) {
-                    acc[0] += a(b_, i, kk) * b(b_, j, kk);
-                    acc[1] += a(b_, i, kk + 1) * b(b_, j, kk + 1);
-                    acc[2] += a(b_, i, kk + 2) * b(b_, j, kk + 2);
-                    acc[3] += a(b_, i, kk + 3) * b(b_, j, kk + 3);
+                __m256 acc = _mm256_setzero_ps();
+                for (int kk = 0; kk < k - k % 8; kk += 8) {
+                    __m256 a_vec = _mm256_loadu_ps(&a(b_, i, kk));
+                    __m256 b_vec = _mm256_loadu_ps(&b(b_, j, kk));
+                    __m256 prod = _mm256_mul_ps(a_vec, b_vec);
+                    acc = _mm256_add_ps(acc, prod);
+                     fprintf(stderr,"111");
                 }
-                c(b_, i, j) = acc[0] + acc[1] + acc[2] + acc[3];
+                float temp[8];
+                _mm256_storeu_ps(temp, acc);
+                c(b_, i, j) = temp[0] + temp[1] + temp[2] + temp[3] + temp[4] + temp[5] + temp[6] + temp[7];
             }
         }
     }
@@ -52,7 +94,7 @@ void linear(Matrix3D<T> &a, const Matrix3D<T> &b, Matrix3D<T> &c) {
         for (int i = 0; i < m; ++i) {
             for (int j = 0; j < n; ++j) {
                 T acc = 0;
-                for (int kk = k - k % 4; kk < k; ++kk) {
+                for (int kk = k - k % 8; kk < k; ++kk) {
                     acc += a(b_, i, kk) * b(b_, j, kk);
                 }
                 c(b_, i, j) += acc;
@@ -60,6 +102,7 @@ void linear(Matrix3D<T> &a, const Matrix3D<T> &b, Matrix3D<T> &c) {
         }
     }
 }
+
 void Linear_FP::forward(const Matrix3D<float> &a, Matrix3D<float> &c) {
     Matrix3D<float> b = this->weight;
     const int m = a.m_dim_y, n = b.m_dim_y, k = a.m_dim_z, b_size = b.m_dim_x;

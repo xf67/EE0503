@@ -147,29 +147,67 @@ struct transpose_1_2idx_float_arg {
 // }
 
 
+// static void *transpose_1_2idx_float_func(void *args_) {
+//     struct transpose_1_2idx_float_arg *args = (struct transpose_1_2idx_float_arg *)args_;
+//     Matrix3D<float> input = args->input;
+//     Matrix3D<float> output = args->output;
+//     const int unroll_factor = 4;
+//     int k, remaining, full_iterations;
+
+//     full_iterations = (args->end_idx - args->start_idx) / unroll_factor;
+//     remaining = (args->end_idx - args->start_idx) % unroll_factor;
+
+//     for (int i = 0; i < input.m_dim_x; i++) {
+//         for (int j = 0; j < input.m_dim_y; j++) {
+//             for (k = 0; k < full_iterations; k++) {
+//                 output.m_data[i * output.m_dim_y * output.m_dim_z +
+//                               (args->start_idx + k * unroll_factor + 0) * output.m_dim_z + j] =
+//                     input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx +
+//                                  k * unroll_factor + 0];
+//                 output.m_data[i * output.m_dim_y * output.m_dim_z +
+//                               (args->start_idx + k * unroll_factor + 1) * output.m_dim_z + j] =
+//                     input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx +
+//                                  k * unroll_factor + 1];
+//                 output.m_data[i * output.m_dim_y * output.m_dim_z +
+//                               (args->start_idx + k * unroll_factor + 2) * output.m_dim_z + j] =
+//                     input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx +
+//                                  k * unroll_factor + 2];
+//                 output.m_data[i * output.m_dim_y * output.m_dim_z +
+//                               (args->start_idx + k * unroll_factor + 3) * output.m_dim_z + j] =
+//                     input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx +
+//                                  k * unroll_factor + 3];
+//             }
+//             for (k = args->start_idx + full_iterations * unroll_factor; k < args->end_idx; k++) {
+//                 output.m_data[i * output.m_dim_y * output.m_dim_z + k * output.m_dim_z + j] =
+//                     input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + k];
+//             }
+//         }
+//     }
+//     return NULL;
+// }
+#include <immintrin.h>  // For AVX2 intrinsics
+
 static void *transpose_1_2idx_float_func(void *args_) {
     struct transpose_1_2idx_float_arg *args = (struct transpose_1_2idx_float_arg *)args_;
     Matrix3D<float> input = args->input;
     Matrix3D<float> output = args->output;
-    const int unroll_factor = 4;
-    int k, remaining, full_iterations;
-
-    full_iterations = (args->end_idx - args->start_idx) / unroll_factor;
-    remaining = (args->end_idx - args->start_idx) % unroll_factor;
+    const int unroll_factor = 8;  // Unroll by 8 to utilize AVX2
 
     for (int i = 0; i < input.m_dim_x; i++) {
         for (int j = 0; j < input.m_dim_y; j++) {
-            for (k = 0; k < full_iterations; k++) {
-                output.m_data[i * output.m_dim_y * output.m_dim_z + (args->start_idx + k * unroll_factor + 0) * output.m_dim_z + j] =
-                    input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx + k * unroll_factor + 0];
-                output.m_data[i * output.m_dim_y * output.m_dim_z + (args->start_idx + k * unroll_factor + 1) * output.m_dim_z + j] =
-                    input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx + k * unroll_factor + 1];
-                output.m_data[i * output.m_dim_y * output.m_dim_z + (args->start_idx + k * unroll_factor + 2) * output.m_dim_z + j] =
-                    input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx + k * unroll_factor + 2];
-                output.m_data[i * output.m_dim_y * output.m_dim_z + (args->start_idx + k * unroll_factor + 3) * output.m_dim_z + j] =
-                    input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + args->start_idx + k * unroll_factor + 3];
+            int k;
+            for (k = args->start_idx; k <= args->end_idx - unroll_factor; k += unroll_factor) {
+                // Load input data
+                __m256 in_vec0 =
+                    _mm256_loadu_ps(&input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + k]);
+                // fprintf(stderr,"111");
+                // Store transposed data to output
+                for (int u = 0; u < unroll_factor; ++u) {
+                    output.m_data[i * output.m_dim_y * output.m_dim_z + (k + u) * output.m_dim_z + j] = in_vec0[u];
+                }
             }
-            for (k = args->start_idx + full_iterations * unroll_factor; k < args->end_idx; k++) {
+            // Handle remaining elements
+            for (; k < args->end_idx; k++) {
                 output.m_data[i * output.m_dim_y * output.m_dim_z + k * output.m_dim_z + j] =
                     input.m_data[i * input.m_dim_y * input.m_dim_z + j * input.m_dim_z + k];
             }
