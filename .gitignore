@@ -31,6 +31,3 @@ profile_*
 !profile_*.cc
 libtorch/
 
-transformer/build/
-transformer/chat
-transformer/chat.dSYM/
