@@ -33,3 +33,5 @@ libtorch/
 
 
 transformer/chat.dSYM/
+transformer/build
+transformer/chat
